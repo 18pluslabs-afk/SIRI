@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+@keyframes siriRipple {
+  0% {
+    transform: scale(0.96);
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 0.45;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+@keyframes siriAuraRotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes siriInnerBreathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+
+.animate-siri-ripple-1 {
+  animation: siriRipple 2.8s cubic-bezier(0.1, 0.25, 0.3, 1) infinite;
+}
+
+.animate-siri-ripple-2 {
+  animation: siriRipple 2.8s cubic-bezier(0.1, 0.25, 0.3, 1) infinite 0.9s;
+}
+
+.animate-siri-ripple-3 {
+  animation: siriRipple 2.8s cubic-bezier(0.1, 0.25, 0.3, 1) infinite 1.8s;
+}
+
+.animate-siri-rotate {
+  animation: siriAuraRotate 14s linear infinite;
+}
+
+.animate-siri-breathe {
+  animation: siriInnerBreathe 3s ease-in-out infinite;
+}
+
+@keyframes shimmerLight {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes radialPulseGlow {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes beamSweep {
+  0% {
+    transform: translateX(-150%) skewX(-20deg);
+  }
+  50%, 100% {
+    transform: translateX(250%) skewX(-20deg);
+  }
+}
+
+.animate-shimmer-text {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(255, 255, 255, 1) 30%,
+    rgba(224, 242, 254, 1) 50%,
+    rgba(255, 255, 255, 1) 70%,
+    rgba(255, 255, 255, 0.4) 100%
+  );
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shimmerLight 3.5s linear infinite;
+}
+
+.animate-beam-sweep {
+  animation: beamSweep 3.2s ease-in-out infinite;
+}
+
+.animate-radial-pulse {
+  animation: radialPulseGlow 4s ease-in-out infinite;
+}
+
+.font-cinzel {
+  font-family: 'Cinzel', serif;
+}
+
+.font-italiana {
+  font-family: 'Italiana', serif;
+}
+

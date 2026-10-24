@@ -1,0 +1,7 @@
+{
+  "name": "भपूम AI Assistant",
+  "description": "iPhone 18 Pro Max Siri भन्दा पनि एडभान्स लेभलको फुल नेपाली रियल-टाइम भ्वाइस असिस्टेन्ट।",
+  "requestFramePermissions": ["microphone", "camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
