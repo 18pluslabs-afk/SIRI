@@ -89,8 +89,11 @@ export class AudioStreamer {
     // Buffer size 4096 samples = 256ms at 16kHz
     this.scriptProcessor = inputCtx.createScriptProcessor(4096, 1, 1);
     this.micSource.connect(this.scriptProcessor);
-    // Connect to destination to keep processor active in Chrome/Safari (silenced)
-    this.scriptProcessor.connect(inputCtx.destination);
+    // Connect to destination via 0-gain node to keep processor active in Chrome/Safari without speaker feedback
+    const muteGain = inputCtx.createGain();
+    muteGain.gain.value = 0;
+    this.scriptProcessor.connect(muteGain);
+    muteGain.connect(inputCtx.destination);
 
     this.scriptProcessor.onaudioprocess = (e: AudioProcessingEvent) => {
       if (!this.isRecording) return;

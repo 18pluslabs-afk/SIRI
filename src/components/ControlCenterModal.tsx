@@ -412,6 +412,27 @@ export const ControlCenterModal: React.FC<ControlCenterModalProps> = ({
             </div>
           </div>
 
+          {/* WhatsApp Integration Widget (9704227689) */}
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-slate-900 to-black border border-emerald-500/30 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-lg">
+                💬
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-white">WhatsApp आधिकारिक सम्पर्क (Official)</h4>
+                <p className="text-xs font-mono text-emerald-300 tracking-wider">+९७७ ९७०४२२७६८९</p>
+              </div>
+            </div>
+            <a
+              href="https://wa.me/9704227689"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-emerald-600/30"
+            >
+              <span>च्याट गर्नुहोस्</span>
+            </a>
+          </div>
+
           {/* Quick Notes (Apple Intelligence Notes) */}
           <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
             <div className="flex items-center justify-between mb-3">

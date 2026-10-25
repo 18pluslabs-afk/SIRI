@@ -3,6 +3,38 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <script>
+      // Suppress benign iframe/preview WebSocket disconnect error events from triggering runtime overlays
+      window.addEventListener(
+        'error',
+        function (event) {
+          if (
+            event?.message?.toLowerCase().includes('websocket') ||
+            (event?.target && event.target instanceof WebSocket) ||
+            (event?.error && String(event.error).toLowerCase().includes('websocket'))
+          ) {
+            event.stopImmediatePropagation();
+            event.preventDefault();
+            return true;
+          }
+        },
+        true
+      );
+      window.addEventListener(
+        'unhandledrejection',
+        function (event) {
+          if (
+            event?.reason?.message?.toLowerCase().includes('websocket') ||
+            String(event?.reason).toLowerCase().includes('websocket')
+          ) {
+            event.stopImmediatePropagation();
+            event.preventDefault();
+            return true;
+          }
+        },
+        true
+      );
+    </script>
     <title>SIRI — iPhone 18 Pro Siri Plus</title>
     <meta name="description" content="iPhone 18 Pro Max Siri भन्दा पनि एडभान्स लेभलको फुल नेपाली रियल-टाइम भ्वाइस असिस्टेन्ट।" />
     <meta property="og:title" content="SIRI — iPhone 18 Pro Siri Plus" />

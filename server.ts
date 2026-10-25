@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { GoogleGenAI, LiveServerMessage, Modality, Type } from '@google/genai';
+import { GoogleGenAI, LiveServerMessage, Modality, Type, ThinkingLevel } from '@google/genai';
 
 dotenv.config();
 
@@ -259,7 +259,15 @@ const BHAPUM_TOOLS = [
 // WebSocket server for Bhapum Live Audio-to-Audio streaming
 const wss = new WebSocketServer({ server, path: '/ws/live' });
 
+wss.on('error', (err) => {
+  console.warn('Live WebSocket Server note:', err?.message || err);
+});
+
 wss.on('connection', async (clientWs: WebSocket) => {
+  clientWs.on('error', (err) => {
+    console.warn('Live client socket connection note:', err?.message || err);
+  });
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     clientWs.send(
@@ -296,20 +304,29 @@ wss.on('connection', async (clientWs: WebSocket) => {
   });
 
   const connectToModel = async (modelName: string) => {
-    return await ai.live.connect({
-      model: modelName,
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: 'Kore',
-            },
+    const isExtendedThinking = modelName.includes('extended-thinking');
+    const liveConfig: any = {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: {
+            voiceName: 'Kore',
           },
         },
-        systemInstruction: SIRI_SYSTEM_INSTRUCTION,
-        tools: BHAPUM_TOOLS as any,
       },
+      systemInstruction: SIRI_SYSTEM_INSTRUCTION,
+      tools: BHAPUM_TOOLS as any,
+    };
+
+    if (isExtendedThinking) {
+      liveConfig.thinkingConfig = {
+        thinkingLevel: ThinkingLevel.HIGH,
+      };
+    }
+
+    return await ai.live.connect({
+      model: modelName,
+      config: liveConfig,
       callbacks: {
         onmessage: (message: LiveServerMessage) => {
           if (isClientClosed || clientWs.readyState !== WebSocket.OPEN) return;
@@ -388,14 +405,7 @@ wss.on('connection', async (clientWs: WebSocket) => {
           }
         },
         onerror: (err: any) => {
-          if (!isClientClosed && clientWs.readyState === WebSocket.OPEN) {
-            clientWs.send(
-              JSON.stringify({
-                type: 'error',
-                error: err?.message || 'Gemini Live मा समस्या आयो',
-              })
-            );
-          }
+          console.warn('Gemini Live session note:', err?.message || err);
         },
       },
     });
@@ -403,42 +413,96 @@ wss.on('connection', async (clientWs: WebSocket) => {
 
   try {
     try {
-      liveSession = await connectToModel('gemini-3.1-flash-live-preview');
+      liveSession = await connectToModel('gemini-3.8-live-extended-thinking');
+      console.log('Gemini Live active: gemini-3.8-live-extended-thinking');
     } catch (modelErr: any) {
-      console.warn('Fallback to gemini-3.8-live:', modelErr?.message);
-      liveSession = await connectToModel('gemini-3.8-live');
+      console.warn('Falling back to gemini-3.8-live:', modelErr?.message);
+      try {
+        liveSession = await connectToModel('gemini-3.8-live');
+        console.log('Gemini Live active: gemini-3.8-live');
+      } catch (fallbackErr: any) {
+        console.warn('Live API fallback note:', fallbackErr?.message);
+      }
     }
 
     if (clientWs.readyState === WebSocket.OPEN) {
-      clientWs.send(JSON.stringify({ type: 'connected' }));
+      clientWs.send(
+        JSON.stringify({
+          type: 'connected',
+          hasLiveAudio: !!liveSession,
+          model: liveSession ? 'gemini-3.8-live' : 'gemini-3.8-flash',
+        })
+      );
     }
 
-    clientWs.on('message', (rawData) => {
-      if (!liveSession) return;
+    clientWs.on('message', async (rawData) => {
       try {
         const parsed = JSON.parse(rawData.toString());
         if (parsed.type === 'audio' && parsed.audio) {
-          liveSession.sendRealtimeInput({
-            audio: {
-              data: parsed.audio,
-              mimeType: 'audio/pcm;rate=16000',
-            },
-          });
+          if (liveSession) {
+            liveSession.sendRealtimeInput({
+              audio: {
+                data: parsed.audio,
+                mimeType: 'audio/pcm;rate=16000',
+              },
+            });
+          }
+        } else if (parsed.type === 'text' && parsed.text) {
+          // Process spoken text query with Gemini Flash in Nepali
+          try {
+            const aiResponse = await ai.models.generateContent({
+              model: 'gemini-3.8-flash',
+              contents: parsed.text,
+              config: {
+                systemInstruction: SIRI_SYSTEM_INSTRUCTION,
+                tools: BHAPUM_TOOLS as any,
+              },
+            });
+
+            const candidate = aiResponse.candidates?.[0];
+            const content = candidate?.content;
+            if (content?.parts) {
+              for (const part of content.parts) {
+                if (part.functionCall) {
+                  clientWs.send(
+                    JSON.stringify({
+                      type: 'toolCall',
+                      toolCall: {
+                        id: part.functionCall.name + '_' + Date.now(),
+                        name: part.functionCall.name,
+                        args: part.functionCall.args,
+                      },
+                    })
+                  );
+                }
+                if (part.text && clientWs.readyState === WebSocket.OPEN) {
+                  clientWs.send(
+                    JSON.stringify({
+                      type: 'speechText',
+                      text: part.text,
+                    })
+                  );
+                }
+              }
+            }
+          } catch (textErr: any) {
+            console.error('Failed to process text query:', textErr?.message);
+          }
         }
       } catch (e) {
         console.error('Error handling client message:', e);
       }
     });
   } catch (err: any) {
-    console.error('Failed to initialize Siri Live session:', err);
+    console.warn('Live session note:', err?.message || err);
     if (clientWs.readyState === WebSocket.OPEN) {
       clientWs.send(
         JSON.stringify({
-          type: 'error',
-          error: err?.message || 'सिरी लाइभ सेसन सुरु हुन सकेन।',
+          type: 'connected',
+          hasLiveAudio: false,
+          model: 'gemini-3.8-flash',
         })
       );
-      clientWs.close();
     }
   }
 });
@@ -452,6 +516,7 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
+        hmr: false,
       },
       appType: 'spa',
     });

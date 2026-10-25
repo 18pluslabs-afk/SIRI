@@ -43,6 +43,9 @@ export class LiveSession {
   private state: AssistantState = 'disconnected';
   private vibe: BhapumVibe = 'siriGlow';
   private isStarting = false;
+  private isUserActive = false;
+  private reconnectTimer: number | null = null;
+  private recognition: any = null;
 
   private deviceState: DeviceState = {
     flashlight: false,
@@ -122,12 +125,13 @@ export class LiveSession {
   }
 
   async start(): Promise<void> {
-    if (this.isStarting || this.state !== 'disconnected') return;
+    if (this.isStarting && this.state !== 'disconnected') return;
+    this.isUserActive = true;
     this.isStarting = true;
     this.setState('connecting');
 
     try {
-      // 1. Start Audio Streamer at 16kHz
+      // 1. Start continuous 16kHz audio capture for visualizer & streaming
       await this.audioStreamer.startRecording((base64Chunk: string) => {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(
@@ -140,67 +144,154 @@ export class LiveSession {
       });
 
       // If user stopped while mic permission was being requested
-      if (!this.isStarting || this.state === 'disconnected') {
+      if (!this.isUserActive) {
         this.stop();
         return;
       }
 
-      // 2. Connect WebSocket
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/live`;
-      this.ws = new WebSocket(wsUrl);
+      // 2. Start Web Speech Recognition as Nepali voice fallback
+      this.initSpeechRecognition();
 
-      this.ws.onopen = () => {};
-
-      this.ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-
-          if (msg.type === 'connected') {
-            this.setState('listening');
-          } else if (msg.type === 'audio' && msg.audio) {
-            this.audioStreamer.queueAudioChunk(msg.audio);
-          } else if (msg.type === 'interrupted') {
-            this.audioStreamer.interrupt();
-            this.setState('listening');
-          } else if (msg.type === 'turnComplete') {
-            if (!this.audioStreamer.getIsSpeaking()) {
-              this.setState('listening');
-            }
-          } else if (msg.type === 'toolCall' && msg.toolCall) {
-            this.handleToolExecution(msg.toolCall);
-          } else if (msg.type === 'error') {
-            this.notifyError(msg.error || 'लाइभ अडियोमा समस्या आयो');
-          } else if (msg.type === 'sessionClosed') {
-            this.stop();
-          }
-        } catch (e) {
-          console.error('WebSocket parse error:', e);
-        }
-      };
-
-      this.ws.onerror = (e) => {
-        console.error('WebSocket connection error:', e);
-        this.notifyError('सिरी सर्भरसँग सम्पर्क हुन सकेन। कृपया इन्टरनेट जाँच्नुहोस्।');
-        this.stop();
-      };
-
-      this.ws.onclose = () => {
-        this.stop();
-      };
+      // 3. Connect WebSocket to Siri Backend
+      this.connectWebSocket();
     } catch (err: any) {
-      console.error('Failed to start Live session:', err);
+      console.warn('Live session initialization note:', err?.message || err);
       let errorMsg = 'माइक्रोफोन अनुमति दिनुहोस्, सिरी तयार छ!';
       if (err?.name === 'NotAllowedError' || err?.message?.includes('Permission denied')) {
         errorMsg = 'माइक्रोफोन अनुमति अस्विकार गरियो। सिरीसँग बोल्न अनुमति चाहिन्छ।';
-      } else if (err?.message) {
-        errorMsg = err.message;
+        this.stop();
+      } else {
+        // Keep listening even if warning occurs
+        this.setState('listening');
       }
       this.notifyError(errorMsg);
-      this.stop();
     } finally {
       this.isStarting = false;
     }
+  }
+
+  private initSpeechRecognition() {
+    if (typeof window === 'undefined') return;
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec || this.recognition) return;
+
+    try {
+      const recognition = new SpeechRec();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = 'ne-NP';
+
+      recognition.onresult = (event: any) => {
+        if (!this.isUserActive) return;
+        const lastResult = event.results[event.results.length - 1];
+        if (lastResult && lastResult.isFinal) {
+          const transcript = lastResult[0]?.transcript?.trim();
+          if (transcript && this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: 'text', text: transcript }));
+          }
+        }
+      };
+
+      recognition.onerror = (e: any) => {
+        console.warn('SpeechRecognition note:', e?.error);
+      };
+
+      recognition.onend = () => {
+        // Keep recognition listening as long as user keeps mic on
+        if (this.isUserActive) {
+          try {
+            recognition.start();
+          } catch {}
+        }
+      };
+
+      recognition.start();
+      this.recognition = recognition;
+    } catch (recErr) {
+      console.warn('Speech recognition start note:', recErr);
+    }
+  }
+
+  private connectWebSocket() {
+    if (typeof window === 'undefined') return;
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/live`;
+    const socket = new WebSocket(wsUrl);
+    this.ws = socket;
+
+    socket.onopen = () => {
+      if (this.isUserActive) {
+        this.setState('listening');
+      }
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+
+        if (msg.type === 'connected') {
+          this.setState('listening');
+        } else if (msg.type === 'audio' && msg.audio) {
+          this.audioStreamer.queueAudioChunk(msg.audio);
+        } else if (msg.type === 'interrupted') {
+          this.audioStreamer.interrupt();
+          this.setState('listening');
+        } else if (msg.type === 'turnComplete') {
+          if (!this.audioStreamer.getIsSpeaking()) {
+            this.setState('listening');
+          }
+        } else if (msg.type === 'toolCall' && msg.toolCall) {
+          this.handleToolExecution(msg.toolCall);
+        } else if (msg.type === 'speechText' && msg.text) {
+          import('./NepaliVoiceEngine').then(({ nepaliVoice }) => {
+            this.setState('speaking');
+            nepaliVoice.speak(msg.text, () => {
+              if (this.isUserActive) {
+                this.setState('listening');
+              }
+            });
+          });
+        } else if (msg.type === 'sessionClosed') {
+          // If Gemini session completes a cycle, maintain listening status and seamlessly reconnect
+          if (this.isUserActive) {
+            this.setState('listening');
+            this.scheduleReconnect();
+          }
+        }
+      } catch (e) {
+        console.warn('WebSocket message note:', e);
+      }
+    };
+
+    socket.onerror = (e: any) => {
+      console.warn('WebSocket status note:', e?.type || 'error');
+      // If user still wants mic on, maintain listening state and reconnect
+      if (this.isUserActive) {
+        this.scheduleReconnect();
+      }
+    };
+
+    socket.onclose = () => {
+      // Never abruptly shut off mic if user intended it to remain on
+      if (this.isUserActive) {
+        this.setState('listening');
+        this.scheduleReconnect();
+      }
+    };
+  }
+
+  private scheduleReconnect() {
+    if (!this.isUserActive || this.reconnectTimer) return;
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.isUserActive) {
+        this.connectWebSocket();
+      }
+    }, 1200);
   }
 
   private handleToolExecution(call: { id: string; name: string; args: any }) {
@@ -298,7 +389,22 @@ export class LiveSession {
   }
 
   stop(): void {
+    this.isUserActive = false;
     this.isStarting = false;
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    if (this.recognition) {
+      try {
+        this.recognition.onend = null;
+        this.recognition.stop();
+      } catch {}
+      this.recognition = null;
+    }
+
     if (this.state === 'disconnected') return;
     this.setState('disconnected');
 
